@@ -6,6 +6,8 @@ A compact IoT device that measures real-time power consumption of household appl
 ![Platform](https://img.shields.io/badge/platform-ESP8266%2FESP32-blue)
 ![Made with](https://img.shields.io/badge/made%20with-Python%20%7C%20C%2B%2B%20%7C%20Power%20BI-orange)
 
+Live demo: https://iot-based-appliance-power-tracker-d-orpin.vercel.app/
+
 ---
 
 ## 🔍 What It Does
