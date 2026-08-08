@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>power-tracker-01.log — Live Dashboard</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+  :root{
+    --bg:#080b13; --panel:#0e1420; --panel-2:#111a2b; --border:#1c2536;
+    --text:#e2e8f0; --muted:#5b6b85; --green:#34e0a1; --blue:#5b9dff; --amber:#ffb454; --red:#ff6b6b; --purple:#c58bff;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:radial-gradient(circle at 15% 0%, #101a2e 0%, transparent 45%), radial-gradient(circle at 85% 100%, #0f1a24 0%, transparent 45%), var(--bg); color:var(--text); font-family:'JetBrains Mono', monospace; min-height:100vh; padding:40px 20px 60px; }
+  .wrap{ max-width:1040px; margin:0 auto; }
+  header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
+  .brand{ display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; }
+  .brand b{ color:var(--text); font-weight:600; }
+  .head-controls{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  select, input[type=time], input[type=email], input[type=password]{ background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:7px 10px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  button{ font-family:'JetBrains Mono',monospace; cursor:pointer; }
+  .live-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border:1px solid var(--border); border-radius:999px; background:var(--panel); font-size:12px; color:var(--green); }
+  .live-pill.offline{ color:var(--red); }
+  .dot{ width:7px; height:7px; border-radius:50%; background:currentColor; animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%{box-shadow:0 0 0 0 currentColor;} 70%{box-shadow:0 0 0 8px transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
+
+  .meta-strip{ display:flex; justify-content:space-between; color:var(--muted); font-size:11.5px; margin-bottom:16px; flex-wrap:wrap; gap:8px; }
+  .meta-strip b{ color:var(--text); }
+
+  .controls{ display:flex; gap:14px; margin-bottom:14px; flex-wrap:wrap; }
+  .ctrl-card{ flex:1; min-width:200px; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px 18px; display:flex; align-items:center; justify-content:space-between; }
+  .ctrl-label{ font-size:11px; letter-spacing:.1em; color:var(--muted); text-transform:uppercase; margin-bottom:4px; }
+  .ctrl-desc{ font-size:11px; color:var(--muted); }
+  .switch{ position:relative; width:52px; height:28px; flex-shrink:0; }
+  .switch input{ opacity:0; width:0; height:0; }
+  .slider{ position:absolute; cursor:pointer; inset:0; background:#2a3348; border-radius:999px; transition:.2s; }
+  .slider::before{ content:""; position:absolute; height:20px; width:20px; left:4px; top:4px; background:#0e1420; border-radius:50%; transition:.2s; }
+  input:checked + .slider{ background:var(--green); }
+  input:checked + .slider::before{ transform:translateX(24px); }
+  .switch.off input:checked + .slider{ background:var(--red); }
+  .switch.blue input:checked + .slider{ background:var(--blue); }
+
+  .alert{ display:none; align-items:center; gap:10px; background:rgba(255,107,107,.1); border:1px solid var(--red); color:var(--red); border-radius:12px; padding:12px 16px; margin-bottom:14px; font-size:12.5px; }
+  .alert.show{ display:flex; }
+  .alert button{ margin-left:auto; background:var(--red); color:#0a0e1a; border:none; border-radius:8px; padding:6px 12px; font-weight:700; font-size:11px; }
+  .alert.warn{ border-color:var(--purple); color:var(--purple); background:rgba(197,139,255,.1); }
+
+  .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:16px; }
+  .grid.two{ grid-template-columns:repeat(2,1fr); }
+  .card{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:22px 20px; position:relative; overflow:hidden; }
+  .card::before{ content:""; position:absolute; inset:0 0 auto 0; height:2px; background:linear-gradient(90deg,var(--accent,var(--green)),transparent 70%); }
+  .label{ font-size:11px; letter-spacing:.12em; color:var(--muted); margin-bottom:10px; text-transform:uppercase; }
+  .value{ font-size:34px; font-weight:800; color:var(--accent,var(--green)); line-height:1; font-variant-numeric:tabular-nums; }
+  .value.small{ font-size:24px; }
+  .value small{ font-size:16px; font-weight:600; opacity:.7; margin-left:4px; }
+  .sub{ margin-top:8px; font-size:11px; color:var(--muted); }
+  .card.blue{ --accent:var(--blue); } .card.amber{ --accent:var(--amber); } .card.purple{ --accent:var(--purple); }
+  .card.dim{ opacity:.4; }
+
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:20px 20px 10px; margin-bottom:16px; }
+  .panel-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+  .panel-head .label{ margin:0; }
+  .panel-head .now{ font-size:12px; color:var(--green); }
+  svg{ width:100%; height:140px; display:block; }
+  .grid-line{ stroke:var(--border); stroke-width:1; }
+  .spark{ fill:none; stroke:var(--green); stroke-width:2; }
+  .spark-fill{ fill:url(#g1); stroke:none; }
+
+  .row-panel{ display:flex; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
+  .row-panel .panel{ flex:1; min-width:260px; margin-bottom:0; }
+  .sched-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .sched-row button{ background:var(--blue); color:#0a0e1a; border:none; border-radius:8px; padding:8px 14px; font-weight:700; font-size:11px; }
+  .export-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .export-row a{ text-decoration:none; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:8px 14px; font-size:11px; }
+
+  .log{ background:var(--panel-2); border:1px solid var(--border); border-radius:14px; padding:16px 18px; height:190px; overflow:hidden; font-size:12.5px; color:var(--muted); }
+  .log .line{ white-space:nowrap; opacity:0; animation:fadeIn .3s forwards; margin-bottom:6px; }
+  .log .line b{ color:var(--text); font-weight:500; }
+  .log .line .w{ color:var(--green); } .log .line .w.warn{ color:var(--red); } .log .line .w.anom{ color:var(--purple); }
+  .log .line .t{ color:var(--muted); margin-right:10px; }
+  @keyframes fadeIn{ to{ opacity:1; } }
+
+  .login-bar{ display:flex; gap:8px; align-items:center; }
+  .login-bar button{ background:var(--green); color:#0a0e1a; border:none; border-radius:8px; padding:7px 12px; font-weight:700; font-size:11px; }
+  .auth-status{ font-size:11px; color:var(--muted); }
+  .auth-status.in{ color:var(--green); }
+
+  footer{ text-align:center; color:var(--muted); font-size:11px; margin-top:24px; }
+  @media (max-width:720px){ .grid{ grid-template-columns:1fr; } .grid.two{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">// <b>power-tracker-01.log</b></div>
+    <div class="head-controls">
+      <select id="applianceSelect"></select>
+      <div class="live-pill" id="livePill"><span class="dot"></span> <span id="liveText">LIVE</span></div>
+    </div>
+  </header>
+
+  <div class="meta-strip">
+    <span>Rated: <b id="ratedW">--</b> W · Safety cutoff: <b id="maxW">--</b> W</span>
+    <span>status: <b id="statusVal">on</b></span>
+    <div class="login-bar" id="loginBar">
+      <input type="email" id="loginEmail" placeholder="admin email" style="width:150px" />
+      <input type="password" id="loginPass" placeholder="password" style="width:110px" />
+      <button id="loginBtn">Sign in</button>
+      <span class="auth-status" id="authStatus">not signed in — controls locked</span>
+    </div>
+  </div>
+
+  <div class="alert" id="overloadAlert">
+    ⚠ <span id="alertMsg">Overcurrent detected — power cut automatically.</span>
+    <button id="resetBtn">Reset &amp; turn on</button>
+  </div>
+  <div class="alert warn" id="anomalyAlert">
+    ◆ <span id="anomalyMsg">Unusual draw pattern detected.</span>
+  </div>
+
+  <div class="controls">
+    <div class="ctrl-card">
+      <div><div class="ctrl-label">Power</div><div class="ctrl-desc" id="powerDesc">appliance is on</div></div>
+      <label class="switch off"><input type="checkbox" id="powerToggle" checked><span class="slider"></span></label>
+    </div>
+    <div class="ctrl-card">
+      <div><div class="ctrl-label">Power Save</div><div class="ctrl-desc" id="saveDesc">runs at rated draw</div></div>
+      <label class="switch blue"><input type="checkbox" id="saveToggle"><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label">Live Draw</div>
+      <div class="value" id="power">-- <small>W</small></div>
+      <div class="sub" id="powerSub">reading…</div>
+    </div>
+    <div class="card blue">
+      <div class="label">Efficiency</div>
+      <div class="value" id="efficiency">-- <small>%</small></div>
+      <div class="sub">vs. rated load</div>
+    </div>
+    <div class="card amber">
+      <div class="label">Uptime</div>
+      <div class="value" id="uptime">-- <small>d</small></div>
+      <div class="sub">since last reset</div>
+    </div>
+  </div>
+
+  <div class="grid two">
+    <div class="card purple">
+      <div class="label">Est. Cost (30d)</div>
+      <div class="value small" id="costVal">-- <small>₹</small></div>
+      <div class="sub" id="kwhSub">-- kWh used</div>
+    </div>
+    <div class="card">
+      <div class="label">Carbon Footprint (30d)</div>
+      <div class="value small" id="carbonVal">-- <small>kg CO₂</small></div>
+      <div class="sub">based on grid average</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div class="label">Power draw — last 60s</div><div class="now" id="nowVal">-- W</div></div>
+    <svg viewBox="0 0 600 140" preserveAspectRatio="none">
+      <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#34e0a1" stop-opacity="0.35"/><stop offset="100%" stop-color="#34e0a1" stop-opacity="0"/></linearGradient></defs>
+      <line class="grid-line" x1="0" y1="35" x2="600" y2="35"/><line class="grid-line" x1="0" y1="70" x2="600" y2="70"/><line class="grid-line" x1="0" y1="105" x2="600" y2="105"/>
+      <polygon class="spark-fill" id="sparkFill" points=""></polygon>
+      <polyline class="spark" id="sparkLine" points=""></polyline>
+    </svg>
+  </div>
+
+  <div class="row-panel">
+    <div class="panel">
+      <div class="label">Auto-off schedule</div>
+      <div class="sched-row">
+        <input type="time" id="schedTime" />
+        <button id="schedBtn">Set auto-off</button>
+        <span class="sub" id="schedStatus">no schedule set</span>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="label">Reports</div>
+      <div class="export-row">
+        <a id="csvLink" href="#">⬇ Export CSV</a>
+        <a id="pdfLink" href="#">⬇ Export PDF</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <footer>ESP32 · MongoDB · Socket.io · Power BI — real-time push, anomaly detection, auto-off scheduling &amp; overload cutoff</footer>
+</div>
+
+<script>
+const APPLIANCES = {
+  'Bulb':{ratedW:10,maxW:18}, 'Fan':{ratedW:65,maxW:90}, 'AC':{ratedW:1400,maxW:1800}, 'TV':{ratedW:90,maxW:150},
+  'Iron':{ratedW:1200,maxW:1800}, 'Heater':{ratedW:1600,maxW:2200}, 'Refrigerator':{ratedW:150,maxW:250},
+  'Washing Machine':{ratedW:600,maxW:1000}, 'Microwave':{ratedW:1000,maxW:1500}, 'Water Heater':{ratedW:2000,maxW:3000}
+};
+
+let selected='Fan', isOn=true, powerSave=false, overloaded=false;
+let simPower=APPLIANCES[selected].ratedW, uptimeDays=12;
+let authToken=null; // kept in memory only — not persisted, sign in again on refresh
+const history_=[]; const MAX_POINTS=30;
+let socket=null, socketConnected=false;
+
+const select=document.getElementById('applianceSelect');
+Object.keys(APPLIANCES).forEach(name=>{
+  const opt=document.createElement('option'); opt.value=name; opt.textContent=name;
+  if(name===selected) opt.selected=true; select.appendChild(opt);
+});
+select.addEventListener('change', e=>{
+  selected=e.target.value; simPower=APPLIANCES[selected].ratedW; history_.length=0;
+  isOn=true; overloaded=false; powerSave=false;
+  document.getElementById('powerToggle').checked=true;
+  document.getElementById('saveToggle').checked=false;
+  hideAlert(); hideAnomaly(); updateMeta(); updateExportLinks(); loadCost(); tick();
+});
+
+function updateMeta(){
+  document.getElementById('ratedW').textContent=APPLIANCES[selected].ratedW;
+  document.getElementById('maxW').textContent=APPLIANCES[selected].maxW;
+}
+function updateExportLinks(){
+  document.getElementById('csvLink').href=`/api/report/csv?name=${encodeURIComponent(selected)}`;
+  document.getElementById('pdfLink').href=`/api/report/pdf?name=${encodeURIComponent(selected)}`;
+}
+updateMeta(); updateExportLinks();
+
+// ---- auth ----
+document.getElementById('loginBtn').addEventListener('click', async ()=>{
+  const email=document.getElementById('loginEmail').value;
+  const password=document.getElementById('loginPass').value;
+  try{
+    const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    if(!res.ok) throw new Error();
+    const data=await res.json();
+    authToken=data.token;
+    const s=document.getElementById('authStatus'); s.textContent='signed in'; s.classList.add('in');
+  }catch(e){
+    const s=document.getElementById('authStatus'); s.textContent='sign in failed'; s.classList.remove('in');
+  }
+});
+function authHeaders(){ return authToken ? {'Content-Type':'application/json','Authorization':'Bearer '+authToken} : {'Content-Type':'application/json'}; }
+
+// ---- power / power-save toggles ----
+const powerToggle=document.getElementById('powerToggle');
+powerToggle.addEventListener('change', async e=>{
+  isOn=e.target.checked; if(isOn){ overloaded=false; hideAlert(); }
+  document.getElementById('powerDesc').textContent=isOn?'appliance is on':'appliance is off';
+  try{ await fetch('/api/control',{method:'POST',headers:authHeaders(),body:JSON.stringify({applianceName:selected,action:isOn?'on':'off'})}); }catch(e){}
+});
+const saveToggle=document.getElementById('saveToggle');
+saveToggle.addEventListener('change', async e=>{
+  powerSave=e.target.checked;
+  document.getElementById('saveDesc').textContent=powerSave?'capped ~30% below rated draw':'runs at rated draw';
+  try{ await fetch('/api/power-save',{method:'POST',headers:authHeaders(),body:JSON.stringify({applianceName:selected,enabled:powerSave})}); }catch(e){}
+});
+
+// ---- scheduling ----
+document.getElementById('schedBtn').addEventListener('click', async ()=>{
+  const t=document.getElementById('schedTime').value;
+  if(!t) return;
+  try{
+    await fetch('/api/schedule',{method:'POST',headers:authHeaders(),body:JSON.stringify({applianceName:selected,offAt:t})});
+    document.getElementById('schedStatus').textContent=`auto-off at ${t} daily`;
+  }catch(e){ document.getElementById('schedStatus').textContent='could not set schedule (sign in first)'; }
+});
+
+// ---- overload / anomaly banners ----
+function showAlert(msg){ overloaded=true; isOn=false; powerToggle.checked=false; document.getElementById('powerDesc').textContent='appliance is off'; document.getElementById('alertMsg').textContent=msg; document.getElementById('overloadAlert').classList.add('show'); }
+function hideAlert(){ document.getElementById('overloadAlert').classList.remove('show'); }
+function showAnomaly(msg){ document.getElementById('anomalyMsg').textContent=msg; document.getElementById('anomalyAlert').classList.add('show'); setTimeout(hideAnomaly, 6000); }
+function hideAnomaly(){ document.getElementById('anomalyAlert').classList.remove('show'); }
+document.getElementById('resetBtn').addEventListener('click', async ()=>{
+  overloaded=false; isOn=true; powerToggle.checked=true; document.getElementById('powerDesc').textContent='appliance is on'; hideAlert();
+  simPower=APPLIANCES[selected].ratedW;
+  try{ await fetch('/api/control',{method:'POST',headers:authHeaders(),body:JSON.stringify({applianceName:selected,action:'on'})}); }catch(e){}
+});
+
+// ---- cost / carbon ----
+async function loadCost(){
+  try{
+    const res=await fetch(`/api/cost?name=${encodeURIComponent(selected)}`);
+    if(!res.ok) throw new Error();
+    const data=await res.json();
+    document.getElementById('costVal').innerHTML=`₹${data.estimatedCost} <small></small>`;
+    document.getElementById('kwhSub').textContent=`${data.kWhThisMonth} kWh used`;
+    document.getElementById('carbonVal').innerHTML=`${data.estimatedCarbonKg} <small>kg CO₂</small>`;
+  }catch(e){
+    // demo fallback estimate from simulated draw
+    const kwh=(APPLIANCES[selected].ratedW*24*30)/1000*0.4;
+    document.getElementById('costVal').innerHTML=`₹${(kwh*6).toFixed(0)}`;
+    document.getElementById('kwhSub').textContent=`~${kwh.toFixed(1)} kWh (estimated)`;
+    document.getElementById('carbonVal').innerHTML=`${(kwh*0.82).toFixed(1)} <small>kg CO₂</small>`;
+  }
+}
+loadCost();
+
+// ---- socket.io real-time (falls back to polling if unavailable) ----
+try{
+  socket=io({ reconnectionAttempts:3, timeout:3000 });
+  socket.on('connect', ()=>{ socketConnected=true; document.getElementById('livePill').classList.remove('offline'); document.getElementById('liveText').textContent='LIVE'; });
+  socket.on('disconnect', ()=>{ socketConnected=false; document.getElementById('livePill').classList.add('offline'); document.getElementById('liveText').textContent='POLLING'; });
+  socket.on('reading', data=>{ if(data.applianceName===selected) applyReading(data); });
+  socket.on('overload', data=>{ if(data.applianceName===selected) showAlert(`Overcurrent detected on ${selected} (${data.power}W > ${data.limit}W limit) — power cut automatically.`); });
+  socket.on('anomaly', data=>{ if(data.applianceName===selected) showAnomaly(`Unusual draw on ${selected}: ${data.power}W vs typical ${data.mean}W ± ${data.stdDev}W`); });
+}catch(e){ socketConnected=false; }
+
+function pushPoint(v){ history_.push(v); if(history_.length>MAX_POINTS) history_.shift(); }
+function renderChart(){
+  const w=600,h=140,pad=6; if(history_.length<2) return;
+  const max=Math.max(...history_,10), min=Math.min(...history_,0), range=Math.max(max-min,1), step=w/(MAX_POINTS-1);
+  const pts=history_.map((v,i)=>{ const x=i*step, y=h-pad-((v-min)/range)*(h-pad*2); return `${x.toFixed(1)},${y.toFixed(1)}`; });
+  document.getElementById('sparkLine').setAttribute('points', pts.join(' '));
+  document.getElementById('sparkFill').setAttribute('points', ['0,'+h, ...pts, ((history_.length-1)*step)+','+h].join(' '));
+}
+function logLine(html){
+  const el=document.getElementById('log'); const div=document.createElement('div'); div.className='line'; div.innerHTML=html;
+  el.prepend(div); while(el.children.length>7) el.removeChild(el.lastChild);
+}
+function applyReading(data){
+  isOn = data.isOn ?? isOn; powerSave = data.powerSave ?? powerSave;
+  powerToggle.checked=isOn; saveToggle.checked=powerSave;
+  render(data);
+  const time=new Date().toLocaleTimeString('en-GB',{hour12:false});
+  logLine(`<span class="t">${time}</span> reading → <b class="w">${data.power}W</b> · efficiency ${data.efficiency ?? '--'}%${powerSave?' · <b>ECO</b>':''}${data.anomaly?' · <b class="w anom">◆ anomaly</b>':''}`);
+}
+
+function render(data){
+  document.getElementById('power').innerHTML=`${data.power} <small>W</small>`;
+  document.getElementById('efficiency').innerHTML=`${data.efficiency ?? 0} <small>%</small>`;
+  document.getElementById('uptime').innerHTML=`${data.uptime ?? uptimeDays} <small>d</small>`;
+  document.getElementById('nowVal').textContent=`${data.power} W`;
+  document.getElementById('statusVal').textContent=isOn?(powerSave?'on · power save':'on'):'off';
+  document.getElementById('powerSub').textContent=!isOn?'appliance off':(data.power>APPLIANCES[selected].ratedW?'above average draw':'nominal draw');
+  document.querySelectorAll('.card').forEach(c=>c.classList.toggle('dim', !isOn));
+  pushPoint(data.power); renderChart();
+}
+
+// ---- polling fallback / demo simulation ----
+async function fetchLiveStatus(){
+  try{
+    const res=await fetch(`/api/live-status?name=${encodeURIComponent(selected)}`);
+    if(!res.ok) throw new Error('no api');
+    const data=await res.json();
+    isOn=data.isOn; powerSave=data.powerSave; powerToggle.checked=isOn; saveToggle.checked=powerSave;
+    if(data.overload && !overloaded) showAlert(`Overcurrent detected on ${selected} — power cut automatically.`);
+    return data;
+  }catch(e){ return simulateReading(); }
+}
+function simulateReading(){
+  const profile=APPLIANCES[selected];
+  if(!isOn) return { power:0, efficiency:0, uptime:uptimeDays, applianceLoad:0 };
+  const ceiling=powerSave?profile.ratedW*0.7:profile.ratedW;
+  simPower += (Math.random()-0.5)*(ceiling*0.08);
+  simPower = Math.max(ceiling*0.6, Math.min(ceiling*1.1, simPower));
+  if(!overloaded && Math.random()<0.015) simPower=profile.maxW*1.05;
+  if(simPower>profile.maxW){
+    showAlert(`Overcurrent detected on ${selected} (${simPower.toFixed(0)}W > ${profile.maxW}W limit) — power cut automatically.`);
+    const finalReading=simPower; simPower=0;
+    return { power:+finalReading.toFixed(1), efficiency:0, uptime:uptimeDays, overloadNow:true };
+  }
+  const efficiency=powerSave?Math.round(85+Math.random()*10):Math.round(70+Math.random()*20);
+  return { power:+simPower.toFixed(1), efficiency, uptime:uptimeDays };
+}
+async function tick(){
+  if(socketConnected) return; // real data already streaming via socket
+  const data=await fetchLiveStatus();
+  render(data);
+  const time=new Date().toLocaleTimeString('en-GB',{hour12:false});
+  if(data.overloadNow) logLine(`<span class="t">${time}</span> <b class="w warn">⚠ OVERLOAD ${data.power}W</b> — relay tripped, ${selected} switched off`);
+  else logLine(`<span class="t">${time}</span> reading → <b class="w">${data.power}W</b> · efficiency ${data.efficiency}%${powerSave?' · <b>ECO</b>':''}`);
+}
+tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>
